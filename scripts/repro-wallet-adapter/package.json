@@ -12,8 +12,6 @@
   "dependencies": {
     "@moveindustries/ts-sdk": "^5.1.6",
     "@moveindustries/wallet-adapter-react": "^7.4.1",
-    "@razorlabs/wallet-kit": "^0.5.0",
-    "antd": "^6.2.0",
     "buffer": "^6.0.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
