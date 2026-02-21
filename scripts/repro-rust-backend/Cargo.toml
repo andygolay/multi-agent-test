@@ -1,0 +1,21 @@
+[package]
+name = "repro-rust-backend"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone workspace (not part of parent workspace)
+[workspace]
+
+[dependencies]
+# Use the local aptos-sdk
+aptos-sdk = { path = "../../crates/aptos-sdk", features = ["ed25519", "faucet"] }
+
+# Web server
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"

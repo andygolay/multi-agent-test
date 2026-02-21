@@ -1,0 +1,17 @@
+{
+  "name": "sequence-number-repro",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "repro:both": "npx tsx repro-sequence-number.ts both",
+    "repro:movement": "npx tsx repro-sequence-number.ts movement",
+    "repro:aptos": "npx tsx repro-sequence-number.ts aptos"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "^1.33.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
