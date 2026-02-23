@@ -66,6 +66,7 @@ export function MultiAgentTest() {
 
     try {
       log("=== STEP 1: Create Transaction (First Sender) ===");
+      log(`Network: MOVEMENT TESTNET`);
       log(`First sender (you): ${account.address}`);
 
       const bytecode = await loadScript();
@@ -111,7 +112,7 @@ export function MultiAgentTest() {
       log(`Serialized TX: ${serializedTx.substring(0, 60)}...`);
 
       // Generate unique transaction ID
-      const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const txId = `tx_movement_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       setTransactionId(txId);
 
       // Save to Rust backend
@@ -130,7 +131,7 @@ export function MultiAgentTest() {
         throw new Error(`Backend error: ${result.message}`);
       }
 
-      log(`Backend stored transaction. Sequence number: ${result.sequence_number}`);
+      log(`Backend stored transaction.`);
       setHasSavedTransaction(true);
       log("");
       log("Now switch wallet to second signer and click Step 2");
@@ -171,7 +172,6 @@ export function MultiAgentTest() {
       }
 
       log(`Retrieved transaction (stored ${Math.floor((Date.now() / 1000) - (data.stored_at || 0))} seconds ago)`);
-      log(`Sequence number in tx: ${data.sequence_number}`);
 
       // Deserialize transaction (received from Rust backend)
       const transaction = MultiAgentTransaction.deserialize(
@@ -254,7 +254,6 @@ export function MultiAgentTest() {
 
       const elapsedSeconds = Math.floor((Date.now() / 1000) - (data.stored_at || 0));
       log(`Retrieved from backend (stored ${elapsedSeconds} seconds ago)`);
-      log(`Transaction sequence number: ${data.sequence_number}`);
 
       // Deserialize transaction (from Rust backend)
       const transaction = MultiAgentTransaction.deserialize(
@@ -272,45 +271,29 @@ export function MultiAgentTest() {
       );
       log("Second signer's signature deserialized from backend");
 
-      // Check current on-chain sequence number
-      const config = new MovementConfig({ network: Network.TESTNET });
-      const movement = new Movement(config);
-
-      try {
-        const accountInfo = await movement.account.getAccountInfo({
-          accountAddress: account.address,
-        });
-        log(`Current on-chain sequence_number: ${accountInfo.sequence_number}`);
-        log(`Transaction's sequence_number: ${data.sequence_number}`);
-
-        if (accountInfo.sequence_number !== data.sequence_number?.toString()) {
-          log("WARNING: Sequence numbers don't match!");
-        }
-      } catch (e) {
-        log("Could not fetch current sequence number");
-      }
-
-      // First sender signs with wallet
+      // First sender signs with wallet (using wallet adapter)
       log("Requesting wallet signature...");
       const senderSignature = await signTransaction({
         transactionOrPayload: transaction,
       });
       log("Wallet signed successfully");
 
-      // Submit using wallet adapter's submitTransaction
-      log("Submitting via wallet adapter submitTransaction...");
-      const tx = await submitTransaction({
+      // Submit to MOVEMENT TESTNET via SDK client (NOT wallet adapter)
+      const config = new MovementConfig({ network: Network.TESTNET });
+      const movement = new Movement(config);
+
+      log("Submitting to MOVEMENT TESTNET via SDK client...");
+      const pendingTx = await movement.transaction.submit.multiAgent({
         transaction,
         senderAuthenticator: senderSignature.authenticator,
         additionalSignersAuthenticators: [reviewerSignature],
       });
 
-      log(`SUCCESS! Transaction hash: ${tx.hash}`);
+      log(`SUCCESS! Transaction hash: ${pendingTx.hash}`);
 
-      // Wait for confirmation
       log("Waiting for confirmation...");
       const result = await movement.waitForTransaction({
-        transactionHash: tx.hash,
+        transactionHash: pendingTx.hash,
       });
       log(`Transaction confirmed: ${result.success}`);
 
@@ -337,6 +320,12 @@ export function MultiAgentTest() {
 
   return (
     <div>
+      <div style={{ marginBottom: "10px", padding: "10px", background: "#1a3a1a", borderRadius: "4px" }}>
+        <strong>Network: MOVEMENT TESTNET (Client Submission)</strong>
+        <br />
+        <small style={{ color: "#8f8" }}>Submits via SDK client, NOT wallet adapter</small>
+      </div>
+
       <div style={{ marginBottom: "10px", padding: "10px", background: "#2a2a2a", borderRadius: "4px" }}>
         <strong>Rust Backend:</strong> {BACKEND_URL}
         <br />

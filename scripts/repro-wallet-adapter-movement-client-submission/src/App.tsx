@@ -12,8 +12,8 @@ function App() {
       }}
     >
       <div style={{ padding: "20px", fontFamily: "monospace" }}>
-        <h1>Multi-Agent Transaction Test</h1>
-        <p>Testing multi-agent on Movement (wallet must be on Movement network)</p>
+        <h1>Multi-Agent Transaction Test (Movement - Client Submission)</h1>
+        <p>Testing multi-agent on Movement with SDK client submission (wallet must be on Movement Testnet)</p>
         <hr />
         <MultiAgentTest />
       </div>

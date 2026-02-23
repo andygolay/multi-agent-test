@@ -10,6 +10,7 @@
 //! Set RESERIALIZE=1 to enable parse-reserialize mode.
 
 use aptos_sdk::aptos_bcs;
+use aptos_sdk::transaction::authenticator::AccountAuthenticator;
 use aptos_sdk::transaction::types::MultiAgentRawTransaction;
 use axum::{
     extract::State,
@@ -42,10 +43,8 @@ impl Default for AppState {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct StoredTransaction {
-    /// Raw BCS hex from TypeScript SDK
+    /// Raw BCS hex from TypeScript SDK (stored as-is, returned as-is)
     raw_bcs_hex: String,
-    /// Parsed sequence number (for debugging)
-    sequence_number: Option<u64>,
     /// Secondary signer's signature (if provided)
     secondary_signature_hex: Option<String>,
     /// Timestamp when stored
@@ -62,7 +61,6 @@ struct StoreTransactionRequest {
 struct StoreTransactionResponse {
     success: bool,
     transaction_id: String,
-    sequence_number: Option<u64>,
     message: String,
 }
 
@@ -84,12 +82,12 @@ struct GetTransactionResponse {
     success: bool,
     bcs_hex: Option<String>,
     secondary_signature_hex: Option<String>,
-    sequence_number: Option<u64>,
     stored_at: Option<u64>,
     message: String,
 }
 
-/// Store a serialized transaction from the frontend
+/// Store a serialized transaction from the frontend.
+/// Stores the raw BCS hex as-is (pass-through mode).
 async fn store_transaction(
     State(state): State<Arc<AppState>>,
     Json(req): Json<StoreTransactionRequest>,
@@ -98,15 +96,13 @@ async fn store_transaction(
     println!("  BCS hex length: {} chars", req.bcs_hex.len());
     println!("  BCS hex prefix: {}...", &req.bcs_hex[..std::cmp::min(60, req.bcs_hex.len())]);
 
-    // Try to parse and extract sequence number for debugging
-    let sequence_number = parse_sequence_number(&req.bcs_hex);
-    if let Some(seq) = sequence_number {
-        println!("  Parsed sequence_number: {}", seq);
+    // Parse sequence number for console logging only (not stored or returned)
+    if let Some(seq) = parse_sequence_number(&req.bcs_hex) {
+        println!("  [DEBUG] Parsed sequence_number: {}", seq);
     }
 
     let stored = StoredTransaction {
         raw_bcs_hex: req.bcs_hex.clone(),
-        sequence_number,
         secondary_signature_hex: None,
         stored_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -124,13 +120,13 @@ async fn store_transaction(
         Json(StoreTransactionResponse {
             success: true,
             transaction_id: req.transaction_id,
-            sequence_number,
             message: "Transaction stored".to_string(),
         }),
     )
 }
 
 /// Store a secondary signer's signature
+/// Validates the signature by deserializing as AccountAuthenticator, then re-encodes and stores
 async fn store_signature(
     State(state): State<Arc<AppState>>,
     Json(req): Json<StoreSignatureRequest>,
@@ -142,17 +138,56 @@ async fn store_signature(
         &req.signature_hex[..std::cmp::min(60, req.signature_hex.len())]
     );
 
+    // Step 1: Decode hex to bytes
+    let authenticator_hex = req.signature_hex.trim_start_matches("0x");
+    let authenticator_bytes = match hex::decode(authenticator_hex) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            println!("  ERROR: Invalid authenticator hex: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(StoreSignatureResponse {
+                    success: false,
+                    transaction_id: req.transaction_id,
+                    message: format!("Invalid authenticator hex format: {}", e),
+                }),
+            );
+        }
+    };
+
+    // Step 2: Validate by deserializing as AccountAuthenticator
+    match aptos_bcs::from_bytes::<AccountAuthenticator>(&authenticator_bytes) {
+        Ok(_) => {
+            println!("  Signature validated successfully");
+        }
+        Err(e) => {
+            println!("  ERROR: Invalid authenticator format: {}", e);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(StoreSignatureResponse {
+                    success: false,
+                    transaction_id: req.transaction_id,
+                    message: format!("Invalid authenticator format: {}", e),
+                }),
+            );
+        }
+    };
+
+    // Step 3: Re-encode ORIGINAL bytes to hex with 0x prefix (not re-serialized)
+    let authenticator_hex_storage = format!("0x{}", hex::encode(&authenticator_bytes));
+
+    // Step 4: Store
     let mut transactions = state.transactions.lock().unwrap();
 
     if let Some(tx) = transactions.get_mut(&req.transaction_id) {
-        tx.secondary_signature_hex = Some(req.signature_hex);
-        println!("  Signature stored successfully");
+        tx.secondary_signature_hex = Some(authenticator_hex_storage);
+        println!("  Signature validated and stored successfully");
         (
             StatusCode::OK,
             Json(StoreSignatureResponse {
                 success: true,
                 transaction_id: req.transaction_id,
-                message: "Signature stored".to_string(),
+                message: "Signature validated and stored".to_string(),
             }),
         )
     } else {
@@ -186,7 +221,10 @@ async fn get_transaction(
             - tx.stored_at;
 
         println!("  Found! Stored {} seconds ago", elapsed);
-        println!("  Sequence number: {:?}", tx.sequence_number);
+        // Parse sequence number for console logging only
+        if let Some(seq) = parse_sequence_number(&tx.raw_bcs_hex) {
+            println!("  [DEBUG] Sequence number in tx: {}", seq);
+        }
         println!(
             "  Has secondary signature: {}",
             tx.secondary_signature_hex.is_some()
@@ -228,7 +266,6 @@ async fn get_transaction(
                 success: true,
                 bcs_hex: Some(bcs_hex_to_return),
                 secondary_signature_hex: tx.secondary_signature_hex.clone(),
-                sequence_number: tx.sequence_number,
                 stored_at: Some(tx.stored_at),
                 message: format!("Transaction retrieved (stored {} seconds ago)", elapsed),
             }),
@@ -241,7 +278,6 @@ async fn get_transaction(
                 success: false,
                 bcs_hex: None,
                 secondary_signature_hex: None,
-                sequence_number: None,
                 stored_at: None,
                 message: "Transaction not found".to_string(),
             }),
